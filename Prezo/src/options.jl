@@ -19,7 +19,8 @@ abstract type EuropeanOption <: VanillaOption end
 """
     AmericanOption <: VanillaOption
 
-Abstract type for American-style options that can be exercised at any time up to and including expiration.
+Abstract type for American-style options that can be exercised at any time up to
+and including expiration.
 
 See also: [`AmericanCall`](@ref), [`AmericanPut`](@ref)
 """
@@ -38,7 +39,8 @@ to buy the underlying asset at the strike price at expiration.
 - `expiry::AbstractFloat`: Time to expiration in years
 
 # Payoff
-The payoff at expiration is `max(0, S - K)` where `S` is the spot price and `K` is the strike.
+The payoff at expiration is `max(0, S - K)` where `S` is the spot price and `K`
+is the strike.
 
 # Examples
 ```julia
@@ -74,7 +76,8 @@ to sell the underlying asset at the strike price at expiration.
 - `expiry::AbstractFloat`: Time to expiration in years
 
 # Payoff
-The payoff at expiration is `max(0, K - S)` where `S` is the spot price and `K` is the strike.
+The payoff at expiration is `max(0, K - S)` where `S` is the spot price and `K`
+is the strike.
 
 # Examples
 ```julia

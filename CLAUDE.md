@@ -79,6 +79,28 @@ Three Monte Carlo path generation methods:
 - `asset_paths_col()`: Returns `(steps+1, reps)` matrix
 - `asset_paths_ax()`: Uses `axes()` for iteration (most Julian)
 
+### Code Style
+
+This codebase follows **BlueStyle** (https://github.com/JuliaDiff/BlueStyle) conventions:
+
+**Naming Conventions**
+- Types: UpperCamelCase (`MarketData`, `EuropeanCall`)
+- Functions: lowercase_with_underscores (`norm_cdf`, `asset_paths`)
+- Constants: UPPERCASE_WITH_UNDERSCORES
+- Internal functions: leading underscore (`_internal_function`)
+
+**Formatting**
+- 4 spaces for indentation (never tabs)
+- 92-character line length target
+- Explicit `return` statements in long-form functions
+- Keyword arguments separated with semicolon: `f(x; y=3)`
+- One export per line or grouped by theme
+
+**Function Signatures**
+- Long signatures broken across multiple lines
+- Type annotations included for clarity
+- Parameters indented one level from opening parenthesis
+
 ### Dependencies
 - **Distributions.jl**: Normal distribution for Monte Carlo and Black-Scholes
 - **Plots.jl**: Path visualization and plotting functionality

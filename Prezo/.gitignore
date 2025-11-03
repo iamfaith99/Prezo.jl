@@ -1,0 +1,46 @@
+# Julia
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+deps/deps.jl
+docs/build/
+docs/site/
+Manifest.toml
+
+# Generated output files
+output/
+*.png
+*.pdf
+*.svg
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+*~
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-*
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
