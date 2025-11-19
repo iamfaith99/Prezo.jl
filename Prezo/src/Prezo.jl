@@ -14,7 +14,7 @@ export MarketData
 export VanillaOption, EuropeanOption, AmericanOption
 export EuropeanCall, EuropeanPut, AmericanCall, AmericanPut
 export payoff
-export BlackScholes, Binomial, MonteCarlo, LongstaffSchwartz
+export BlackScholes, Binomial, MonteCarlo, MonteCarloAntithetic, MonteCarloStratified, LongstaffSchwartz
 export asset_paths, asset_paths_col, asset_paths_ax, asset_paths_antithetic, plot_paths
 export price
 export BasisFunction, LaguerreBasis, ChebyshevBasis, PowerBasis, HermiteBasis

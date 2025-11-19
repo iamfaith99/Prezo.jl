@@ -269,7 +269,8 @@ function asset_paths(engine::MonteCarlo, spot, rate, vol, expiry)
 
     @inbounds for i in 1:reps
         @inbounds for j in 2:steps + 1
-            z = rand(Normal(0.0, 1.0))
+            #z = rand(Normal(0.0, 1.0))
+            z = randn()
             paths[i, j] = paths[i, j - 1] * exp(nudt + sidt * z)
         end
     end
@@ -441,6 +442,11 @@ function price(option::EuropeanOption, engine::MonteCarlo, data::MarketData)
 
     return exp(-rate * expiry) * mean(payoffs)
 end
+
+
+
+
+
 
 
 """
@@ -1313,3 +1319,88 @@ end
 # Helper functions for European option payoffs (type-stable)
 payoff_value(option::EuropeanPut, spot::T) where T = max(zero(T), T(option.strike) - spot)
 payoff_value(option::EuropeanCall, spot::T) where T = max(zero(T), spot - T(option.strike))
+
+
+
+
+
+
+struct MonteCarloAntithetic
+    steps::Int
+    reps::Int
+end
+
+function price(option::EuropeanOption, engine::MonteCarloAntithetic, data::MarketData)
+    (; strike, expiry) = option
+    (; spot, rate, vol) = data
+    (; steps, reps) = engine
+
+    paths = asset_paths_antithetic(steps, reps, spot, rate, vol, expiry)
+    payoffs = payoff.(option, paths[end, :])
+
+    return exp(-rate * expiry) * mean(payoffs)
+end
+
+
+
+
+struct MonteCarloStratified
+    steps::Int
+    reps::Int
+end
+
+function stratified_normal(N)
+    d = Normal(0.0, 1.0)
+    zhat = zeros(N)
+
+    for i = 1:N
+        u = rand()
+        uhat = (i - 1 + u) / N
+        zhat[i] = quantile(d, uhat)
+    end
+
+    return zhat
+end
+
+function asset_paths_stratified(
+    steps::Int,
+    reps::Int,
+    spot::Real,
+    rate::Real,
+    vol::Real,
+    expiry::Real
+)
+    dt = expiry / steps
+    nudt = (rate - 0.5 * vol^2) * dt
+    sidt = vol * sqrt(dt)
+
+    # Allocate paths matrix
+    paths = zeros(steps + 1, reps)
+    paths[1, :] .= spot
+
+    # FIXED: Stratify across paths at each time step, not within each path
+    @inbounds for i in 2:steps+1
+        # Generate stratified samples across all paths at this time step
+        z = stratified_normal(reps)
+        # Shuffle to break correlation between strata
+        Random.shuffle!(z)
+
+        for j in 1:reps
+            paths[i, j] = paths[i - 1, j] * exp(nudt + sidt * z[j])
+        end
+    end
+
+    return paths
+end
+
+function price(option::EuropeanOption, engine::MonteCarloStratified, data::MarketData)
+    (; strike, expiry) = option
+    (; spot, rate, vol) = data
+    (; steps, reps) = engine
+
+    paths = asset_paths_stratified(steps, reps, spot, rate, vol, expiry)
+    payoffs = payoff.(option, paths[end, :])
+
+    return exp(-rate * expiry) * mean(payoffs)
+end
+
