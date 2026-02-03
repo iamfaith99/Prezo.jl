@@ -1,11 +1,23 @@
-using Distributions
-using Plots
-using Random
-using LinearAlgebra
+using Distributions: Normal, cdf
 using Statistics
 
 norm_cdf(x) = cdf(Normal(0.0, 1.0), x)
 
+"""
+    PricingEngine
+
+Abstract base type for all option pricing engines.
+
+Concrete subtypes include:
+- [`BlackScholes`](@ref): Analytical Black-Scholes-Merton formula
+- [`Binomial`](@ref): Binomial tree method
+- [`MonteCarlo`](@ref): Monte Carlo simulation
+- [`MonteCarloAntithetic`](@ref): Monte Carlo with antithetic variates
+- [`MonteCarloStratified`](@ref): Monte Carlo with stratified sampling
+
+See also: [`price`](@ref)
+"""
+abstract type PricingEngine end
 
 """
     Binomial(steps)
@@ -17,24 +29,8 @@ of possible asset prices. Converges to Black-Scholes for European options as ste
 
 # Fields
 - `steps::Int`: Number of time steps in the tree
-
-# Examples
-```julia
-data = MarketData(100.0, 0.05, 0.2, 0.0)
-option = EuropeanCall(100.0, 1.0)
-
-# Quick estimate with 50 steps
-engine = Binomial(50)
-price(option, engine, data)
-
-# More accurate with 500 steps
-engine = Binomial(500)
-price(option, engine, data)
-```
-
-See also: [`price`](@ref), [`BlackScholes`](@ref)
 """
-struct Binomial
+struct Binomial <: PricingEngine
     steps::Int
 end
 
@@ -48,30 +44,11 @@ pricing method is selected based on the option type and engine type.
 
 # Arguments
 - `option::VanillaOption`: The option contract to price
-- `engine`: The pricing engine (BlackScholes, Binomial, MonteCarlo, LongstaffSchwartz, etc.)
+- `engine`: The pricing engine (BlackScholes, Binomial, MonteCarlo, etc.)
 - `data::MarketData`: Market parameters
 
 # Returns
 The option price as a Float64.
-
-# Examples
-```julia
-data = MarketData(100.0, 0.05, 0.2, 0.0)
-
-# European call with different engines
-call = EuropeanCall(100.0, 1.0)
-price(call, BlackScholes(), data)
-price(call, Binomial(100), data)
-price(call, MonteCarlo(100, 10000), data)
-
-# American put
-put = AmericanPut(100.0, 1.0)
-price(put, Binomial(100), data)
-price(put, LongstaffSchwartz(50, 10000), data)
-```
-
-See also: [`BlackScholes`](@ref), [`Binomial`](@ref), [`MonteCarlo`](@ref),
-[`LongstaffSchwartz`](@ref)
 """
 function price(option::EuropeanOption, engine::Binomial, data::MarketData)
     (; strike, expiry) = option
@@ -95,7 +72,7 @@ function price(option::EuropeanOption, engine::Binomial, data::MarketData)
 
     for j in steps:-1:1
         @inbounds for i in 1:j
-            x[i] = disc * (pu * x[i] + pd * x[i + 1])
+            x[i] = disc * (pu * x[i] + pd * x[i+1])
         end
     end
 
@@ -114,31 +91,23 @@ function price(option::AmericanOption, engine::Binomial, data::MarketData)
     pd = 1 - pu
     disc = exp(-rate * dt)
 
-    # Asset prices at each node
     s = zeros(steps + 1, steps + 1)
-    # Option values at each node
     x = zeros(steps + 1, steps + 1)
 
-    # Initialize asset prices
     for i in 0:steps
         for j in 0:i
-            s[j + 1, i + 1] = spot * u^(i - j) * d^j
+            s[j+1, i+1] = spot * u^(i - j) * d^j
         end
     end
 
-    # Terminal payoffs
     for j in 1:steps+1
-        x[j, steps + 1] = payoff(option, s[j, steps + 1])
+        x[j, steps+1] = payoff(option, s[j, steps+1])
     end
 
-    # Backward induction with early exercise
     for i in steps:-1:1
         for j in 1:i
-            # Continuation value
-            continuation = disc * (pu * x[j, i + 1] + pd * x[j + 1, i + 1])
-            # Immediate exercise value
+            continuation = disc * (pu * x[j, i+1] + pd * x[j+1, i+1])
             exercise = payoff(option, s[j, i])
-            # Take maximum for American option
             x[j, i] = max(continuation, exercise)
         end
     end
@@ -146,30 +115,12 @@ function price(option::AmericanOption, engine::Binomial, data::MarketData)
     return x[1, 1]
 end
 
-
 """
     BlackScholes()
 
 Black-Scholes-Merton analytical pricing engine for European options.
-
-Provides exact closed-form solutions using the Black-Scholes formula. This is the
-fastest and most accurate method for European options under the Black-Scholes assumptions
-(constant volatility, log-normal price distribution, no dividends).
-
-# Examples
-```julia
-data = MarketData(100.0, 0.05, 0.2, 0.0)
-call = EuropeanCall(100.0, 1.0)
-put = EuropeanPut(100.0, 1.0)
-
-engine = BlackScholes()
-call_price = price(call, engine, data)
-put_price = price(put, engine, data)
-```
-
-See also: [`price`](@ref), [`Binomial`](@ref)
 """
-struct BlackScholes end
+struct BlackScholes <: PricingEngine end
 
 function price(option::EuropeanCall, engine::BlackScholes, data::MarketData)
     (; strike, expiry) = option
@@ -178,9 +129,7 @@ function price(option::EuropeanCall, engine::BlackScholes, data::MarketData)
     d1 = (log(spot / strike) + (rate - div + 0.5 * vol^2) * expiry) / (vol * sqrt(expiry))
     d2 = d1 - vol * sqrt(expiry)
 
-    price = spot * exp(-div * expiry) * norm_cdf(d1) - strike * exp(-rate * expiry) * norm_cdf(d2)
-
-    return price
+    return spot * exp(-div * expiry) * norm_cdf(d1) - strike * exp(-rate * expiry) * norm_cdf(d2)
 end
 
 function price(option::EuropeanPut, engine::BlackScholes, data::MarketData)
@@ -190,252 +139,26 @@ function price(option::EuropeanPut, engine::BlackScholes, data::MarketData)
     d1 = (log(spot / strike) + (rate - div + 0.5 * vol^2) * expiry) / (vol * sqrt(expiry))
     d2 = d1 - vol * sqrt(expiry)
 
-    price = strike * exp(-rate * expiry) * norm_cdf(-d2) - spot * exp(-div * expiry) * norm_cdf(-d1)
-
-    return price
+    return strike * exp(-rate * expiry) * norm_cdf(-d2) - spot * exp(-div * expiry) * norm_cdf(-d1)
 end
-
 
 """
     MonteCarlo(steps, reps)
 
 Monte Carlo simulation engine for European option pricing.
 
-Generates random price paths and computes the discounted expected payoff.
-Useful for path-dependent options and provides visualization capabilities.
-
 # Fields
 - `steps::Int`: Number of time steps per simulation path
 - `reps::Int`: Number of simulation paths (replications)
-
-# Examples
-```julia
-data = MarketData(100.0, 0.05, 0.2, 0.0)
-option = EuropeanCall(100.0, 1.0)
-
-# Quick estimate with 1,000 paths
-engine = MonteCarlo(100, 1000)
-price(option, engine, data)
-
-# Production quality with 100,000 paths
-engine = MonteCarlo(100, 100000)
-price(option, engine, data)
-
-# Visualize sample paths
-paths = asset_paths(engine, 100.0, 0.05, 0.2, 1.0)
-```
-
-See also: [`asset_paths`](@ref), [`asset_paths_col`](@ref), [`plot_paths`](@ref)
 """
-struct MonteCarlo
+struct MonteCarlo <: PricingEngine
     steps::Int
     reps::Int
 end
 
-"""
-    asset_paths(engine::MonteCarlo, spot, rate, vol, expiry)
-
-Generate asset price paths using geometric Brownian motion.
-
-Returns a matrix of simulated asset prices with dimensions `(reps, steps+1)`.
-
-# Arguments
-- `engine::MonteCarlo`: Monte Carlo engine with steps and reps
-- `spot`: Initial spot price
-- `rate`: Risk-free interest rate
-- `vol`: Volatility
-- `expiry`: Time to expiration
-
-# Returns
-Matrix of size `(reps, steps+1)` where each row is a simulated path.
-
-# Examples
-```julia
-engine = MonteCarlo(100, 1000)
-paths = asset_paths(engine, 100.0, 0.05, 0.2, 1.0)
-size(paths)  # (1000, 101)
-```
-
-See also: [`asset_paths_col`](@ref), [`asset_paths_ax`](@ref)
-"""
-function asset_paths(engine::MonteCarlo, spot, rate, vol, expiry)
-    (; steps, reps) = engine
-
-    dt = expiry / steps
-    nudt = (rate - 0.5 * vol^2) * dt
-    sidt = vol * sqrt(dt)
-    paths = zeros(reps, steps + 1)
-    paths[:, 1] .= spot
-
-    @inbounds for i in 1:reps
-        @inbounds for j in 2:steps + 1
-            #z = rand(Normal(0.0, 1.0))
-            z = randn()
-            paths[i, j] = paths[i, j - 1] * exp(nudt + sidt * z)
-        end
-    end
-
-    return paths
-end
-
-
-"""
-    asset_paths_col(engine::MonteCarlo, spot, rate, vol, expiry)
-
-Generate asset price paths with column-major layout.
-
-Returns a matrix of simulated asset prices with dimensions `(steps+1, reps)`.
-This layout is preferred for time-based operations.
-
-# Returns
-Matrix of size `(steps+1, reps)` where each column is a simulated path.
-
-See also: [`asset_paths`](@ref), [`asset_paths_ax`](@ref)
-"""
-function asset_paths_col(engine::MonteCarlo, spot, rate, vol, expiry)
-    (; steps, reps) = engine
-
-    dt = expiry / steps
-    nudt = (rate - 0.5 * vol^2) * dt
-    sidt = vol * sqrt(dt)
-    paths = zeros(steps + 1, reps)
-    paths[1, :] .= spot
-
-    @inbounds for i in 1:reps
-        @inbounds for j in 2:steps +1
-            z = rand(Normal(0.0, 1.0))
-            paths[j, i] = paths[j - 1, i] * exp(nudt + sidt * z)
-        end
-    end
-
-    return paths
-end
-
-
-"""
-    asset_paths_ax(engine::MonteCarlo, spot, rate, vol, expiry)
-
-Generate asset price paths using Julian axis-based iteration.
-
-More idiomatic Julia implementation using `axes()` for iteration.
-
-See also: [`asset_paths`](@ref), [`asset_paths_col`](@ref)
-"""
-function asset_paths_ax(engine::MonteCarlo, spot, rate, vol, expiry)
-    (; steps, reps) = engine
-
-    dt = expiry / steps
-    nudt = (rate - 0.5 * vol^2) * dt
-    sidt = vol * sqrt(dt)
-    paths = zeros(steps + 1, reps)
-    paths[1, :] .= spot
-
-    for j in axes(paths, 2), i in 2:last(axes(paths, 1))
-        z = rand(Normal(0.0, 1.0))
-        paths[i, j] = paths[i - 1, j] * exp(nudt + sidt * z)
-    end
-
-    return paths
-
-end
-
-"""
-    asset_paths_antithetic(steps, reps, spot, rate, vol, expiry)
-
-Generate asset price paths using antithetic variates for variance reduction.
-
-For each random number Z, also generates a path with -Z, creating negatively
-correlated paths that reduce Monte Carlo variance. Returns `2×reps` paths total.
-
-# Arguments
-- `steps::Int`: Number of time steps
-- `reps::Int`: Number of path pairs (total paths = 2×reps)
-- `spot`: Initial spot price
-- `rate`: Risk-free rate
-- `vol`: Volatility
-- `expiry`: Time to expiration
-
-# Returns
-Matrix of size `(steps+1, 2×reps)` where paths `[i, j]` and `[i, j+reps]` are antithetic.
-
-# Examples
-```julia
-# Generate 10,000 antithetic paths (5,000 pairs)
-paths = asset_paths_antithetic(100, 5000, 100.0, 0.05, 0.2, 1.0)
-size(paths)  # (101, 10000)
-```
-
-See also: [`asset_paths_col`](@ref), [`LongstaffSchwartz`](@ref)
-"""
-function asset_paths_antithetic(
-    steps::Int,
-    reps::Int,
-    spot::Real,
-    rate::Real,
-    vol::Real,
-    expiry::Real
-)
-    dt = expiry / steps
-    nudt = (rate - 0.5 * vol^2) * dt
-    sidt = vol * sqrt(dt)
-
-    # Allocate for 2× paths (each pair is antithetic)
-    paths = zeros(steps + 1, 2 * reps)
-    paths[1, :] .= spot
-
-    # Generate antithetic pairs
-    @inbounds for j in 1:reps
-        # Regular path
-        for i in 2:steps+1
-            z = randn()
-            paths[i, j] = paths[i - 1, j] * exp(nudt + sidt * z)
-            # Antithetic path (using -z)
-            paths[i, j + reps] = paths[i - 1, j + reps] * exp(nudt - sidt * z)
-        end
-    end
-
-    return paths
-end
-
-"""
-    plot_paths(paths, num)
-
-Visualize simulated asset price paths.
-
-# Arguments
-- `paths`: Matrix of simulated paths (from `asset_paths`)
-- `num`: Number of paths to plot
-
-# Examples
-```julia
-engine = MonteCarlo(100, 1000)
-paths = asset_paths(engine, 100.0, 0.05, 0.2, 1.0)
-plot_paths(paths, 10)  # Plot first 10 paths
-```
-
-See also: [`asset_paths`](@ref), [`MonteCarlo`](@ref)
-"""
-function plot_paths(paths, num)
-    # The second dimension is steps+1 columns, so:
-    steps = size(paths, 2) - 1
-
-    # Plot the first path
-    plot(0:steps, paths[1, :], label="", legend=false)
-
-    # Add the remaining paths (2 through 10) to the same plot
-    for i in 2:num
-        plot!(0:steps, paths[i, :], label="", legend=false)
-    end
-
-    xaxis!("Time step")
-    yaxis!("Asset price")
-    title!("First 10 Simulated Paths")
-end
-
 function price(option::EuropeanOption, engine::MonteCarlo, data::MarketData)
-    (; strike, expiry) = option
+    (; expiry) = option
     (; spot, rate, vol) = data
-    (; steps, reps) = engine
 
     paths = asset_paths(engine, spot, rate, vol, expiry)
     payoffs = payoff.(option, paths[:, end])
@@ -443,895 +166,13 @@ function price(option::EuropeanOption, engine::MonteCarlo, data::MarketData)
     return exp(-rate * expiry) * mean(payoffs)
 end
 
-
-
-
-
-
-
-"""
-    LongstaffSchwartz(steps, reps, basis_order=3; antithetic=false)
-
-Least Squares Monte Carlo engine for American option pricing.
-
-Implements the Longstaff-Schwartz algorithm which uses regression to estimate
-continuation values at each time step, enabling optimal early exercise decisions.
-
-# Fields
-- `steps::Int`: Number of time discretization steps
-- `reps::Int`: Number of simulation paths (if antithetic=true, actual paths = 2×reps)
-- `basis_order::Int`: Order of Laguerre polynomial basis (default: 3)
-- `antithetic::Bool`: Use antithetic variates for variance reduction (default: false)
-
-# Examples
-```julia
-data = MarketData(100.0, 0.05, 0.2, 0.0)
-option = AmericanPut(100.0, 1.0)
-
-# Standard configuration
-engine = LongstaffSchwartz(50, 10000)
-price(option, engine, data)
-
-# With variance reduction (2× paths for same price)
-engine = LongstaffSchwartz(50, 5000, 3; antithetic=true)
-price(option, engine, data)  # Uses 10000 paths total
-
-# Custom basis order
-engine = LongstaffSchwartz(50, 10000, 4)
-price(option, engine, data)
-```
-
-# Performance Notes
-Using `antithetic=true` provides 2-4× variance reduction for smooth payoffs,
-effectively doubling the number of paths with minimal computational overhead.
-
-# References
-Longstaff, F. A., & Schwartz, E. S. (2001). Valuing American options by simulation:
-a simple least-squares approach. The Review of Financial Studies, 14(1), 113-147.
-
-See also: [`LaguerreLSM`](@ref), [`EnhancedLongstaffSchwartz`](@ref)
-"""
-struct LongstaffSchwartz
-    steps::Int
-    reps::Int
-    basis_order::Int
-    antithetic::Bool
-end
-
-# Default constructor with reasonable basis order
-LongstaffSchwartz(steps::Int, reps::Int) = LongstaffSchwartz(steps, reps, 3, false)
-LongstaffSchwartz(steps::Int, reps::Int, basis_order::Int; antithetic::Bool=false) =
-    LongstaffSchwartz(steps, reps, basis_order, antithetic)
-
-function price(option::AmericanOption, engine::LongstaffSchwartz, data::MarketData)
-    (; strike, expiry) = option
-    (; spot, rate, vol, div) = data
-    (; steps, reps, basis_order, antithetic) = engine
-
-    dt = expiry / steps
-    disc = exp(-rate * dt)
-
-    # Generate all asset price paths (with or without antithetic variates)
-    paths = if antithetic
-        # Use antithetic variates: generates 2×reps paths
-        asset_paths_antithetic(steps, reps, spot, rate - div, vol, expiry)
-    else
-        # Standard path generation
-        asset_paths_col(MonteCarlo(steps, reps), spot, rate - div, vol, expiry)
-    end
-
-    # Actual number of paths (may be 2×reps if antithetic)
-    actual_reps = size(paths, 2)
-
-    # OPTIMIZATION: Use only two arrays instead of full cash flow matrix
-    # continuation_value[i] = discounted future cash flow from path i
-    continuation_value = Vector{Float64}(undef, actual_reps)
-    next_continuation = Vector{Float64}(undef, actual_reps)
-
-    # At expiration, continuation value is the payoff
-    @inbounds for i in 1:actual_reps
-        continuation_value[i] = payoff(option, paths[end, i])
-    end
-
-    # Track which paths have been exercised (to avoid re-exercising)
-    exercised = falses(actual_reps)
-
-    # Pre-allocate workspace for regression to avoid repeated allocations
-    max_itm = actual_reps  # Worst case: all paths ITM
-    workspace_S = Vector{Float64}(undef, max_itm)
-    workspace_payoff = Vector{Float64}(undef, max_itm)
-    workspace_cont = Vector{Float64}(undef, max_itm)
-    workspace_X = Matrix{Float64}(undef, max_itm, basis_order + 1)
-
-    # Work backwards through time
-    for t in steps:-1:2
-        # Current asset prices (use view to avoid allocation)
-        S_t = @view paths[t, :]
-
-        # OPTIMIZATION: Compute ITM paths using boolean mask (no findall)
-        itm_count = 0
-        @inbounds for i in 1:actual_reps
-            if !exercised[i]
-                immediate_payoff = payoff(option, S_t[i])
-                if immediate_payoff > 0.0
-                    itm_count += 1
-                    workspace_S[itm_count] = S_t[i]
-                    workspace_payoff[itm_count] = immediate_payoff
-                    workspace_cont[itm_count] = continuation_value[i]
-                end
-            end
-        end
-
-        if itm_count == 0
-            # No paths are in-the-money, just discount continuation values
-            @inbounds for i in 1:actual_reps
-                next_continuation[i] = continuation_value[i] * disc
-            end
-            continuation_value, next_continuation = next_continuation, continuation_value
-            continue
-        end
-
-        # Extract ITM data (use views into workspace)
-        S_itm = @view workspace_S[1:itm_count]
-        immediate_itm = @view workspace_payoff[1:itm_count]
-        cont_itm = @view workspace_cont[1:itm_count]
-
-        # Discount continuation values
-        @inbounds for i in 1:itm_count
-            cont_itm[i] *= disc
-        end
-
-        # Create basis functions for regression
-        X = create_basis_functions_inplace!(
-            @view(workspace_X[1:itm_count, :]), S_itm, basis_order
-        )
-
-        # Regression: continuation_value = X * β + ε
-        β = X \ cont_itm
-
-        # Predicted continuation values
-        predicted_continuation = X * β
-
-        # Update continuation values with exercise decisions
-        @inbounds for i in 1:actual_reps
-            next_continuation[i] = continuation_value[i] * disc
-        end
-
-        # Exercise decision: exercise if immediate payoff > continuation value
-        itm_idx = 0
-        @inbounds for i in 1:actual_reps
-            if !exercised[i]
-                immediate_payoff = payoff(option, S_t[i])
-                if immediate_payoff > 0.0
-                    itm_idx += 1
-                    if immediate_itm[itm_idx] > predicted_continuation[itm_idx]
-                        # Exercise at time t
-                        next_continuation[i] = immediate_itm[itm_idx]
-                        exercised[i] = true
-                    end
-                end
-            end
-        end
-
-        continuation_value, next_continuation = next_continuation, continuation_value
-    end
-
-    # At t=1 (first time step), decide whether to exercise immediately
-    @inbounds for i in 1:actual_reps
-        if !exercised[i]
-            immediate_payoff = payoff(option, paths[1, i])
-            cont_discounted = continuation_value[i] * disc
-            continuation_value[i] = max(immediate_payoff, cont_discounted)
-        else
-            continuation_value[i] *= disc
-        end
-    end
-
-    # Discount back to present value and return mean
-    return mean(continuation_value) * disc
-end
-
-# In-place version of create_basis_functions for better performance
-function create_basis_functions_inplace!(
-    X::AbstractMatrix{Float64},
-    S::AbstractVector{Float64},
-    order::Int
-)
-    n = length(S)
-
-    # Constant term
-    @inbounds for i in 1:n
-        X[i, 1] = 1.0
-    end
-
-    # Normalized asset prices for better numerical stability
-    S_norm = S ./ 100.0
-
-    for j in 1:order
-        if j == 1
-            # L₁(x) = 1 - x
-            @inbounds for i in 1:n
-                X[i, j + 1] = 1.0 - S_norm[i]
-            end
-        elseif j == 2
-            # L₂(x) = 1 - 2x + x²/2
-            @inbounds for i in 1:n
-                s = S_norm[i]
-                X[i, j + 1] = 1.0 - 2.0 * s + (s * s) / 2.0
-            end
-        elseif j == 3
-            # L₃(x) = 1 - 3x + 3x²/2 - x³/6
-            @inbounds for i in 1:n
-                s = S_norm[i]
-                s2 = s * s
-                X[i, j + 1] = 1.0 - 3.0 * s + 1.5 * s2 - (s2 * s) / 6.0
-            end
-        else
-            # For higher orders, use recursive relation
-            # L_{n+1}(x) = (2n+1-x)L_n(x)/(n+1) - nL_{n-1}(x)/(n+1)
-            @inbounds for i in 1:n
-                X[i, j + 1] = ((2 * j - 1 - S_norm[i]) * X[i, j] - (j - 1) * X[i, j - 1]) / j
-            end
-        end
-    end
-
-    return X
-end
-
-function create_basis_functions(S::Vector{Float64}, order::Int)
-    n = length(S)
-    X = ones(n, order + 1)  # Include constant term
-
-    # Normalized asset prices for better numerical stability
-    S_norm = S / 100.0
-
-    for j in 1:order
-        if j == 1
-            # L₁(x) = 1 - x
-            X[:, j + 1] = 1.0 .- S_norm
-        elseif j == 2
-            # L₂(x) = 1 - 2x + x²/2
-            X[:, j + 1] = 1.0 .- 2.0 * S_norm .+ (S_norm .^ 2) / 2.0
-        elseif j == 3
-            # L₃(x) = 1 - 3x + 3x²/2 - x³/6
-            X[:, j + 1] = 1.0 .- 3.0 * S_norm .+ 1.5 * (S_norm .^ 2) .- (S_norm .^ 3) / 6.0
-        else
-            # For higher orders, use recursive relation
-            # L_{n+1}(x) = (2n+1-x)L_n(x)/n+1 - nL_{n-1}(x)/n+1
-            X[:, j + 1] = ((2 * j - 1 .- S_norm) .* X[:, j] .- (j - 1) * X[:, j - 1]) / j
-        end
-    end
-
-    return X
-end
-
-
-# Enhanced Julian LSM Implementation with Multiple Basis Functions
-# ==============================================================
-
-"""
-    BasisFunction
-
-Abstract base type for polynomial basis functions used in LSM regression.
-
-Subtypes include:
-- [`LaguerreBasis`](@ref): Laguerre polynomials (recommended)
-- [`ChebyshevBasis`](@ref): Chebyshev polynomials
-- [`PowerBasis`](@ref): Simple power basis
-- [`HermiteBasis`](@ref): Hermite polynomials
-"""
-abstract type BasisFunction end
-
-"""
-    LaguerreBasis(order, normalization)
-
-Laguerre polynomial basis functions for LSM regression.
-
-Laguerre polynomials are orthogonal and provide good numerical stability.
-This is the recommended basis for most applications.
-
-# Fields
-- `order::Int`: Maximum polynomial order
-- `normalization::Float64`: Normalization factor for asset prices
-
-See also: [`EnhancedLongstaffSchwartz`](@ref), [`LaguerreLSM`](@ref)
-"""
-struct LaguerreBasis <: BasisFunction
-    order::Int
-    normalization::Float64
-end
-
-"""
-    ChebyshevBasis(order, domain_min, domain_max)
-
-Chebyshev polynomial basis functions for LSM regression.
-
-Chebyshev polynomials are orthogonal on [-1, 1] and provide excellent
-approximation properties. Asset prices are mapped to this domain.
-
-# Fields
-- `order::Int`: Maximum polynomial order
-- `domain_min::Float64`: Minimum of expected price domain
-- `domain_max::Float64`: Maximum of expected price domain
-
-See also: [`EnhancedLongstaffSchwartz`](@ref), [`ChebyshevLSM`](@ref)
-"""
-struct ChebyshevBasis <: BasisFunction
-    order::Int
-    domain_min::Float64
-    domain_max::Float64
-end
-
-"""
-    PowerBasis(order, normalization)
-
-Simple power basis (1, x, x², x³, ...) for LSM regression.
-
-Simple but can suffer from numerical instability for higher orders
-due to non-orthogonality.
-
-# Fields
-- `order::Int`: Maximum polynomial order
-- `normalization::Float64`: Normalization factor for asset prices
-
-See also: [`EnhancedLongstaffSchwartz`](@ref), [`PowerLSM`](@ref)
-"""
-struct PowerBasis <: BasisFunction
-    order::Int
-    normalization::Float64
-end
-
-"""
-    HermiteBasis(order, mean, std)
-
-Hermite polynomial basis functions for LSM regression.
-
-Hermite polynomials are orthogonal with respect to Gaussian weight functions.
-Asset prices are standardized before applying the polynomials.
-
-# Fields
-- `order::Int`: Maximum polynomial order
-- `mean::Float64`: Mean for standardization
-- `std::Float64`: Standard deviation for standardization
-
-See also: [`EnhancedLongstaffSchwartz`](@ref), [`HermiteLSM`](@ref)
-"""
-struct HermiteBasis <: BasisFunction
-    order::Int
-    mean::Float64
-    std::Float64
-end
-
-# Multiple dispatch for different basis types
-function evaluate_basis(basis::LaguerreBasis, S::AbstractVector{T}) where T
-    (; order, normalization) = basis
-    n = length(S)
-    X = ones(T, n, order + 1)
-
-    S_norm = S ./ normalization
-
-    for j in 1:order
-        if j == 1
-            X[:, j + 1] = @. 1.0 - S_norm
-        elseif j == 2
-            X[:, j + 1] = @. 1.0 - 2.0 * S_norm + (S_norm^2) / 2.0
-        elseif j == 3
-            X[:, j + 1] = @. 1.0 - 3.0 * S_norm + 1.5 * (S_norm^2) - (S_norm^3) / 6.0
-        else
-            X[:, j + 1] = @. ((2 * j - 1 - S_norm) * X[:, j] - (j - 1) * X[:, j - 1]) / j
-        end
-    end
-
-    return X
-end
-
-function evaluate_basis(basis::ChebyshevBasis, S::AbstractVector{T}) where T
-    (; order, domain_min, domain_max) = basis
-    n = length(S)
-    X = ones(T, n, order + 1)
-
-    S_mapped = @. 2.0 * (S - domain_min) / (domain_max - domain_min) - 1.0
-
-    if order >= 1
-        X[:, 2] = S_mapped
-    end
-
-    for j in 2:order
-        X[:, j + 1] = @. 2.0 * S_mapped * X[:, j] - X[:, j - 1]
-    end
-
-    return X
-end
-
-function evaluate_basis(basis::PowerBasis, S::AbstractVector{T}) where T
-    (; order, normalization) = basis
-    n = length(S)
-    X = ones(T, n, order + 1)
-
-    S_norm = S ./ normalization
-
-    for j in 1:order
-        X[:, j + 1] = S_norm .^ j
-    end
-
-    return X
-end
-
-function evaluate_basis(basis::HermiteBasis, S::AbstractVector{T}) where T
-    (; order, mean, std) = basis
-    n = length(S)
-    X = ones(T, n, order + 1)
-
-    S_std = @. (S - mean) / std
-
-    if order >= 1
-        X[:, 2] = @. 2.0 * S_std
-    end
-
-    for j in 2:order
-        X[:, j + 1] = @. 2.0 * S_std * X[:, j] - 2.0 * j * X[:, j - 1]
-    end
-
-    return X
-end
-
-# Trait-based design for numerical stability
-abstract type BasisProperties end
-struct Orthogonal <: BasisProperties end
-struct NonOrthogonal <: BasisProperties end
-
-basis_properties(::Type{LaguerreBasis}) = Orthogonal()
-basis_properties(::Type{ChebyshevBasis}) = Orthogonal()
-basis_properties(::Type{PowerBasis}) = NonOrthogonal()
-basis_properties(::Type{HermiteBasis}) = Orthogonal()
-
-function fit_continuation_value(X::Matrix, y::Vector, ::Orthogonal)
-    F = qr(X)
-    return F \ y
-end
-
-function fit_continuation_value(X::Matrix, y::Vector, ::NonOrthogonal)
-    return X \ y
-end
-
-function fit_continuation_value(basis::BasisFunction, X::Matrix, y::Vector)
-    return fit_continuation_value(X, y, basis_properties(typeof(basis)))
-end
-
-# Functor pattern - make basis functions callable
-(basis::BasisFunction)(S::AbstractVector) = evaluate_basis(basis, S)
-
-"""
-    EnhancedLongstaffSchwartz{B, T}
-
-Enhanced LSM engine with flexible basis functions and improved numerical stability.
-
-This is a parametric type that allows different basis functions and precision levels.
-Use the convenience constructors [`LaguerreLSM`](@ref), [`ChebyshevLSM`](@ref),
-[`PowerLSM`](@ref), or [`HermiteLSM`](@ref) instead of constructing directly.
-
-# Type Parameters
-- `B <: BasisFunction`: Type of basis function
-- `T <: AbstractFloat`: Floating point precision (default: Float64)
-
-# Fields
-- `basis::B`: Basis function instance
-- `steps::Int`: Time discretization steps
-- `reps::Int`: Number of simulation paths
-- `min_regression_paths::Int`: Minimum ITM paths required for regression
-
-See also: [`LaguerreLSM`](@ref), [`ChebyshevLSM`](@ref), [`PowerLSM`](@ref),
-[`HermiteLSM`](@ref)
-"""
-struct EnhancedLongstaffSchwartz{B <: BasisFunction, T <: AbstractFloat}
-    basis::B
-    steps::Int
-    reps::Int
-    min_regression_paths::Int
-
-    function EnhancedLongstaffSchwartz{B, T}(
-        basis::B,
-        steps::Int,
-        reps::Int,
-        min_regression_paths::Int=50
-    ) where {B <: BasisFunction, T <: AbstractFloat}
-        steps > 0 || throw(ArgumentError("steps must be positive"))
-        reps > 0 || throw(ArgumentError("reps must be positive"))
-        min_regression_paths > 0 || throw(ArgumentError("min_regression_paths must be positive"))
-        new{B, T}(basis, steps, reps, min_regression_paths)
-    end
-end
-
-function EnhancedLongstaffSchwartz(
-    basis::BasisFunction,
-    steps::Int,
-    reps::Int,
-    min_regression_paths::Int=50
-)
-    return EnhancedLongstaffSchwartz{typeof(basis), Float64}(
-        basis, steps, reps, min_regression_paths
-    )
-end
-
-"""
-    LaguerreLSM(order, steps, reps; normalization=100.0)
-
-Create an enhanced LSM engine with Laguerre polynomial basis (recommended).
-
-# Arguments
-- `order::Int`: Polynomial order (typically 2-4)
-- `steps::Int`: Time discretization steps
-- `reps::Int`: Number of simulation paths
-
-# Keyword Arguments
-- `normalization::Float64`: Normalization factor for prices (default: 100.0)
-
-# Examples
-```julia
-engine = LaguerreLSM(3, 50, 10000)
-option = AmericanPut(100.0, 1.0)
-data = MarketData(100.0, 0.05, 0.2, 0.0)
-price(option, engine, data)
-```
-"""
-function LaguerreLSM(order::Int, steps::Int, reps::Int; normalization=100.0)
-    basis = LaguerreBasis(order, normalization)
-    return EnhancedLongstaffSchwartz(basis, steps, reps)
-end
-
-"""
-    ChebyshevLSM(order, steps, reps; domain=(30.0, 50.0))
-
-Create an enhanced LSM engine with Chebyshev polynomial basis.
-
-# Arguments
-- `order::Int`: Polynomial order
-- `steps::Int`: Time discretization steps
-- `reps::Int`: Number of simulation paths
-
-# Keyword Arguments
-- `domain::Tuple{Float64,Float64}`: Expected price range (min, max)
-"""
-function ChebyshevLSM(order::Int, steps::Int, reps::Int; domain=(30.0, 50.0))
-    basis = ChebyshevBasis(order, domain[1], domain[2])
-    return EnhancedLongstaffSchwartz(basis, steps, reps)
-end
-
-"""
-    PowerLSM(order, steps, reps; normalization=40.0)
-
-Create an enhanced LSM engine with simple power basis.
-
-# Arguments
-- `order::Int`: Polynomial order
-- `steps::Int`: Time discretization steps
-- `reps::Int`: Number of simulation paths
-
-# Keyword Arguments
-- `normalization::Float64`: Normalization factor for prices
-"""
-function PowerLSM(order::Int, steps::Int, reps::Int; normalization=40.0)
-    basis = PowerBasis(order, normalization)
-    return EnhancedLongstaffSchwartz(basis, steps, reps)
-end
-
-"""
-    HermiteLSM(order, steps, reps; mean=40.0, std=10.0)
-
-Create an enhanced LSM engine with Hermite polynomial basis.
-
-# Arguments
-- `order::Int`: Polynomial order
-- `steps::Int`: Time discretization steps
-- `reps::Int`: Number of simulation paths
-
-# Keyword Arguments
-- `mean::Float64`: Mean for standardization
-- `std::Float64`: Standard deviation for standardization
-"""
-function HermiteLSM(order::Int, steps::Int, reps::Int; mean=40.0, std=10.0)
-    basis = HermiteBasis(order, mean, std)
-    return EnhancedLongstaffSchwartz(basis, steps, reps)
-end
-
-# Enhanced pricing function with better numerical stability
-function price(
-    option::AmericanOption,
-    engine::EnhancedLongstaffSchwartz{B, T},
-    data::MarketData
-) where {B, T}
-    (; strike, expiry) = option
-    (; spot, rate, vol, div) = data
-    (; basis, steps, reps, min_regression_paths) = engine
-
-    dt = T(expiry / steps)
-    disc = exp(-T(rate) * dt)
-
-    paths = asset_paths_col(MonteCarlo(steps, reps), T(spot), T(rate - div), T(vol), T(expiry))
-
-    cash_flows = Matrix{T}(undef, steps + 1, reps)
-
-    # Terminal payoffs using broadcasting
-    @. cash_flows[end, :] = max(zero(T), payoff_value(option, paths[end, :]))
-
-    # Backward induction with improved regression
-    for t in steps:-1:2
-        S_t = @view paths[t, :]
-
-        immediate_payoffs = payoff_value.(option, S_t)
-        itm_mask = immediate_payoffs .> zero(T)
-        itm_count = sum(itm_mask)
-
-        if itm_count < min_regression_paths
-            @. cash_flows[t, :] = cash_flows[t + 1, :] * disc
-            continue
-        end
-
-        S_itm = S_t[itm_mask]
-        continuation_values = cash_flows[t + 1, itm_mask] .* disc
-        immediate_itm = immediate_payoffs[itm_mask]
-
-        X = basis(S_itm)
-
-        try
-            β = fit_continuation_value(basis, X, continuation_values)
-            predicted_continuation = X * β
-
-            exercise_mask = immediate_itm .> predicted_continuation
-
-            @. cash_flows[t, :] = cash_flows[t + 1, :] * disc
-
-            itm_indices = findall(itm_mask)
-            exercise_indices = itm_indices[exercise_mask]
-
-            for idx in exercise_indices
-                cash_flows[t, idx] = immediate_payoffs[idx]
-                @. cash_flows[t + 1:end, idx] = zero(T)
-            end
-
-        catch e
-            @warn "Regression failed at time step $t, using continuation value" exception=e
-            @. cash_flows[t, :] = cash_flows[t + 1, :] * disc
-        end
-    end
-
-    immediate_payoffs_t1 = payoff_value.(option, paths[1, :])
-    continuation_values_t1 = cash_flows[2, :] .* disc
-
-    final_cash_flows = max.(immediate_payoffs_t1, continuation_values_t1)
-
-    return T(disc) * mean(final_cash_flows)
-end
-
-# Helper function for type-stable payoffs
-payoff_value(option::AmericanPut, spot::T) where T = max(zero(T), T(option.strike) - spot)
-payoff_value(option::AmericanCall, spot::T) where T = max(zero(T), spot - T(option.strike))
-
-"""
-    validate_american_option_price(
-        american_price, european_price, option_type, div; tolerance=1e-6
-    )
-
-Validate that American option price satisfies basic pricing relationships.
-
-Checks that:
-1. American price ≥ European price (early exercise premium)
-2. For American calls with zero dividends, price ≈ European price
-
-# Arguments
-- `american_price::T`: American option price
-- `european_price::T`: Corresponding European option price
-- `option_type::Type{<:AmericanOption}`: Type of American option
-- `div::T`: Dividend yield
-- `tolerance::T`: Numerical tolerance (default: 1e-6)
-
-# Returns
-`true` if validations pass, `false` otherwise (with warning messages).
-
-# Examples
-```julia
-am_price = price(AmericanPut(100.0, 1.0), LaguerreLSM(3, 50, 10000), data)
-eu_price = price(EuropeanPut(100.0, 1.0), BlackScholes(), data)
-validate_american_option_price(am_price, eu_price, AmericanPut, 0.0)
-```
-"""
-function validate_american_option_price(
-    american_price::T,
-    european_price::T,
-    option_type::Type{<:AmericanOption},
-    div::T,
-    tolerance::T=T(1e-6)
-) where T
-
-    if american_price < european_price - tolerance
-        @warn "American option price ($american_price) < European price ($european_price)"
-        return false
-    end
-
-    if option_type <: AmericanCall && abs(div) < tolerance
-        if american_price > european_price + tolerance
-            premium = american_price - european_price
-            @warn "American call with zero dividends shows significant premium: $premium"
-            return false
-        end
-    end
-
-    return true
-end
-
-# European LSM Implementation
-# ===========================
-# For European options, LSM becomes a regression method to estimate option value
-# using basis functions on the terminal asset price
-
-"""
-    EuropeanLongstaffSchwartz{B, T}
-
-LSM-based regression engine for European option pricing.
-
-Uses basis function regression on terminal asset prices to estimate option values.
-This is primarily for educational purposes as Black-Scholes is more efficient.
-
-# Type Parameters
-- `B <: BasisFunction`: Type of basis function
-- `T <: AbstractFloat`: Floating point precision
-
-See also: [`EuropeanLaguerreLSM`](@ref), [`BlackScholes`](@ref)
-"""
-struct EuropeanLongstaffSchwartz{B <: BasisFunction, T <: AbstractFloat}
-    basis::B
-    reps::Int
-    min_regression_paths::Int
-
-    function EuropeanLongstaffSchwartz{B, T}(
-        basis::B,
-        reps::Int,
-        min_regression_paths::Int=100
-    ) where {B <: BasisFunction, T <: AbstractFloat}
-        reps > 0 || throw(ArgumentError("reps must be positive"))
-        min_regression_paths > 0 || throw(ArgumentError("min_regression_paths must be positive"))
-        new{B, T}(basis, reps, min_regression_paths)
-    end
-end
-
-function EuropeanLongstaffSchwartz(
-    basis::BasisFunction,
-    reps::Int,
-    min_regression_paths::Int=100
-)
-    return EuropeanLongstaffSchwartz{typeof(basis), Float64}(
-        basis, reps, min_regression_paths
-    )
-end
-
-"""
-    EuropeanLaguerreLSM(order, reps; normalization=100.0)
-
-Create a European LSM engine with Laguerre basis (for educational purposes).
-
-For production use, prefer [`BlackScholes`](@ref) for European options.
-
-See also: [`EuropeanLongstaffSchwartz`](@ref), [`BlackScholes`](@ref)
-"""
-function EuropeanLaguerreLSM(order::Int, reps::Int; normalization=100.0)
-    basis = LaguerreBasis(order, normalization)
-    return EuropeanLongstaffSchwartz(basis, reps)
-end
-
-"""
-    EuropeanChebyshevLSM(order, reps; domain=(30.0, 50.0))
-
-Create a European LSM engine with Chebyshev basis.
-
-See also: [`EuropeanLongstaffSchwartz`](@ref)
-"""
-function EuropeanChebyshevLSM(order::Int, reps::Int; domain=(30.0, 50.0))
-    basis = ChebyshevBasis(order, domain[1], domain[2])
-    return EuropeanLongstaffSchwartz(basis, reps)
-end
-
-"""
-    EuropeanPowerLSM(order, reps; normalization=40.0)
-
-Create a European LSM engine with power basis.
-
-See also: [`EuropeanLongstaffSchwartz`](@ref)
-"""
-function EuropeanPowerLSM(order::Int, reps::Int; normalization=40.0)
-    basis = PowerBasis(order, normalization)
-    return EuropeanLongstaffSchwartz(basis, reps)
-end
-
-"""
-    EuropeanHermiteLSM(order, reps; mean=40.0, std=10.0)
-
-Create a European LSM engine with Hermite basis.
-
-See also: [`EuropeanLongstaffSchwartz`](@ref)
-"""
-function EuropeanHermiteLSM(order::Int, reps::Int; mean=40.0, std=10.0)
-    basis = HermiteBasis(order, mean, std)
-    return EuropeanLongstaffSchwartz(basis, reps)
-end
-
-# European LSM pricing - regression on terminal payoffs
-function price(
-    option::EuropeanOption,
-    engine::EuropeanLongstaffSchwartz{B, T},
-    data::MarketData
-) where {B, T}
-    (; strike, expiry) = option
-    (; spot, rate, vol, div) = data
-    (; basis, reps, min_regression_paths) = engine
-
-    # Generate terminal asset prices (single time step)
-    paths = zeros(T, reps)
-    dt = T(expiry)
-    nudt = (T(rate - div) - T(0.5) * T(vol)^2) * dt
-    sidt = T(vol) * sqrt(dt)
-
-    # Generate terminal prices using geometric Brownian motion
-    for i in 1:reps
-        z = randn(T)
-        paths[i] = T(spot) * exp(nudt + sidt * z)
-    end
-
-    # Calculate terminal payoffs
-    terminal_payoffs = payoff_value.(option, paths)
-
-    # Find in-the-money paths for regression
-    itm_mask = terminal_payoffs .> zero(T)
-    itm_count = sum(itm_mask)
-
-    if itm_count < min_regression_paths
-        # Fallback to simple Monte Carlo if not enough ITM paths
-        @warn "Not enough ITM paths ($itm_count < $min_regression_paths), using simple MC"
-        return exp(-T(rate) * T(expiry)) * mean(terminal_payoffs)
-    end
-
-    # Extract ITM data for regression
-    S_itm = paths[itm_mask]
-    payoffs_itm = terminal_payoffs[itm_mask]
-
-    # Create basis matrix
-    X = basis(S_itm)
-
-    try
-        # Fit payoff function using basis regression
-        β = fit_continuation_value(basis, X, payoffs_itm)
-
-        # Predict option values for all paths using the fitted model
-        X_all = basis(paths)
-        predicted_values = X_all * β
-
-        # Ensure non-negative values (option prices can't be negative)
-        predicted_values = max.(predicted_values, zero(T))
-
-        # Return discounted expected value
-        return exp(-T(rate) * T(expiry)) * mean(predicted_values)
-
-    catch e
-        @warn "European LSM regression failed, falling back to simple MC" exception=e
-        return exp(-T(rate) * T(expiry)) * mean(terminal_payoffs)
-    end
-end
-
-# Helper functions for European option payoffs (type-stable)
-payoff_value(option::EuropeanPut, spot::T) where T = max(zero(T), T(option.strike) - spot)
-payoff_value(option::EuropeanCall, spot::T) where T = max(zero(T), spot - T(option.strike))
-
-
-
-
-
-
-struct MonteCarloAntithetic
+struct MonteCarloAntithetic <: PricingEngine
     steps::Int
     reps::Int
 end
 
 function price(option::EuropeanOption, engine::MonteCarloAntithetic, data::MarketData)
-    (; strike, expiry) = option
+    (; expiry) = option
     (; spot, rate, vol) = data
     (; steps, reps) = engine
 
@@ -1341,60 +182,13 @@ function price(option::EuropeanOption, engine::MonteCarloAntithetic, data::Marke
     return exp(-rate * expiry) * mean(payoffs)
 end
 
-
-
-
-struct MonteCarloStratified
+struct MonteCarloStratified <: PricingEngine
     steps::Int
     reps::Int
 end
 
-function stratified_normal(N)
-    d = Normal(0.0, 1.0)
-    zhat = zeros(N)
-
-    for i = 1:N
-        u = rand()
-        uhat = (i - 1 + u) / N
-        zhat[i] = quantile(d, uhat)
-    end
-
-    return zhat
-end
-
-function asset_paths_stratified(
-    steps::Int,
-    reps::Int,
-    spot::Real,
-    rate::Real,
-    vol::Real,
-    expiry::Real
-)
-    dt = expiry / steps
-    nudt = (rate - 0.5 * vol^2) * dt
-    sidt = vol * sqrt(dt)
-
-    # Allocate paths matrix
-    paths = zeros(steps + 1, reps)
-    paths[1, :] .= spot
-
-    # FIXED: Stratify across paths at each time step, not within each path
-    @inbounds for i in 2:steps+1
-        # Generate stratified samples across all paths at this time step
-        z = stratified_normal(reps)
-        # Shuffle to break correlation between strata
-        Random.shuffle!(z)
-
-        for j in 1:reps
-            paths[i, j] = paths[i - 1, j] * exp(nudt + sidt * z[j])
-        end
-    end
-
-    return paths
-end
-
 function price(option::EuropeanOption, engine::MonteCarloStratified, data::MarketData)
-    (; strike, expiry) = option
+    (; expiry) = option
     (; spot, rate, vol) = data
     (; steps, reps) = engine
 
@@ -1404,3 +198,317 @@ function price(option::EuropeanOption, engine::MonteCarloStratified, data::Marke
     return exp(-rate * expiry) * mean(payoffs)
 end
 
+# ============================================================================
+# Exotic Option Pricing (Monte Carlo)
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Asian Options
+# ----------------------------------------------------------------------------
+
+"""
+    price(option::AsianOption, engine::MonteCarlo, data::MarketData)
+
+Price an Asian option using Monte Carlo simulation.
+
+Generates paths and computes the average price at the specified averaging times.
+"""
+function price(option::AsianOption, engine::MonteCarlo, data::MarketData)
+    (; expiry, averaging_times) = option
+    (; spot, rate, vol, div) = data
+    (; steps, reps) = engine
+
+    # Generate paths with enough granularity
+    dt = expiry / steps
+    time_grid = collect(0:dt:expiry)
+
+    # Find indices closest to averaging times
+    avg_indices = [argmin(abs.(time_grid .- t)) for t in averaging_times]
+
+    # Generate paths (column-major: steps+1 x reps)
+    paths = asset_paths_col(engine, spot, rate - div, vol, expiry)
+
+    # Compute payoffs for each path
+    payoffs = zeros(reps)
+    for j in 1:reps
+        # Extract prices at averaging times
+        avg_prices = [paths[i, j] for i in avg_indices]
+        payoffs[j] = payoff(option, avg_prices)
+    end
+
+    return exp(-rate * expiry) * mean(payoffs)
+end
+
+"""
+    price(option::GeometricAsianCall, engine::BlackScholes, data::MarketData)
+
+Analytical pricing for geometric Asian call option.
+
+The geometric average of log-normal variables is log-normal, enabling closed-form pricing.
+"""
+function price(option::GeometricAsianCall, engine::BlackScholes, data::MarketData)
+    (; strike, expiry, averaging_times) = option
+    (; spot, rate, vol, div) = data
+
+    n = length(averaging_times)
+
+    # Adjusted parameters for geometric average
+    # For continuous averaging approximation
+    σ_adj = vol * sqrt((2 * n + 1) / (6 * (n + 1)))
+    r_adj = 0.5 * (rate - div - vol^2 / 2 + σ_adj^2)
+
+    d1 = (log(spot / strike) + (r_adj + 0.5 * σ_adj^2) * expiry) / (σ_adj * sqrt(expiry))
+    d2 = d1 - σ_adj * sqrt(expiry)
+
+    return exp(-rate * expiry) * (spot * exp(r_adj * expiry) * norm_cdf(d1) - strike * norm_cdf(d2))
+end
+
+"""
+    price(option::GeometricAsianPut, engine::BlackScholes, data::MarketData)
+
+Analytical pricing for geometric Asian put option.
+"""
+function price(option::GeometricAsianPut, engine::BlackScholes, data::MarketData)
+    (; strike, expiry, averaging_times) = option
+    (; spot, rate, vol, div) = data
+
+    n = length(averaging_times)
+
+    σ_adj = vol * sqrt((2 * n + 1) / (6 * (n + 1)))
+    r_adj = 0.5 * (rate - div - vol^2 / 2 + σ_adj^2)
+
+    d1 = (log(spot / strike) + (r_adj + 0.5 * σ_adj^2) * expiry) / (σ_adj * sqrt(expiry))
+    d2 = d1 - σ_adj * sqrt(expiry)
+
+    return exp(-rate * expiry) * (strike * norm_cdf(-d2) - spot * exp(r_adj * expiry) * norm_cdf(-d1))
+end
+
+# ----------------------------------------------------------------------------
+# Barrier Options
+# ----------------------------------------------------------------------------
+
+"""
+    price(option::BarrierOption, engine::MonteCarlo, data::MarketData)
+
+Price a barrier option using Monte Carlo simulation.
+
+Generates paths and checks for barrier breaches along each path.
+"""
+function price(option::BarrierOption, engine::MonteCarlo, data::MarketData)
+    (; expiry) = option
+    (; spot, rate, vol, div) = data
+    (; steps, reps) = engine
+
+    # Generate paths (column-major: steps+1 x reps)
+    paths = asset_paths_col(engine, spot, rate - div, vol, expiry)
+
+    # Compute payoffs for each path
+    payoffs = zeros(reps)
+    for j in 1:reps
+        path = paths[:, j]
+        payoffs[j] = payoff(option, path)
+    end
+
+    return exp(-rate * expiry) * mean(payoffs)
+end
+
+"""
+    price(option::KnockOutCall, engine::BlackScholes, data::MarketData)
+
+Analytical pricing for knock-out call option (continuous monitoring).
+
+Uses the reflection principle for barrier option valuation.
+"""
+function price(option::KnockOutCall, engine::BlackScholes, data::MarketData)
+    (; strike, expiry, barrier, barrier_type) = option
+    (; spot, rate, vol, div) = data
+
+    # Standard European call price
+    vanilla_call = price(EuropeanCall(strike, expiry), engine, data)
+
+    if barrier_type == :up_and_out
+        if spot >= barrier
+            return 0.0  # Already knocked out
+        end
+
+        # Rebate = 0 assumed
+        λ = (rate - div + vol^2 / 2) / vol^2
+        y = log(barrier^2 / (spot * strike)) / (vol * sqrt(expiry)) + λ * vol * sqrt(expiry)
+        x1 = log(spot / barrier) / (vol * sqrt(expiry)) + λ * vol * sqrt(expiry)
+        y1 = log(barrier / spot) / (vol * sqrt(expiry)) + λ * vol * sqrt(expiry)
+
+        knock_in = spot * exp(-div * expiry) * (barrier / spot)^(2 * λ) * norm_cdf(y) -
+                   strike * exp(-rate * expiry) * (barrier / spot)^(2 * λ - 2) * norm_cdf(y - vol * sqrt(expiry))
+
+        return max(0.0, vanilla_call - knock_in)
+
+    else  # :down_and_out
+        if spot <= barrier
+            return 0.0  # Already knocked out
+        end
+
+        λ = (rate - div + vol^2 / 2) / vol^2
+        y1 = log(barrier / spot) / (vol * sqrt(expiry)) + λ * vol * sqrt(expiry)
+
+        knock_in = spot * exp(-div * expiry) * (barrier / spot)^(2 * λ) * norm_cdf(y1) -
+                   strike * exp(-rate * expiry) * (barrier / spot)^(2 * λ - 2) * norm_cdf(y1 - vol * sqrt(expiry))
+
+        return max(0.0, vanilla_call - knock_in)
+    end
+end
+
+"""
+    price(option::KnockOutPut, engine::BlackScholes, data::MarketData)
+
+Analytical pricing for knock-out put option (continuous monitoring).
+"""
+function price(option::KnockOutPut, engine::BlackScholes, data::MarketData)
+    (; strike, expiry, barrier, barrier_type) = option
+    (; spot, rate, vol, div) = data
+
+    vanilla_put = price(EuropeanPut(strike, expiry), engine, data)
+
+    if barrier_type == :down_and_out
+        if spot <= barrier
+            return 0.0
+        end
+
+        λ = (rate - div + vol^2 / 2) / vol^2
+        y1 = log(barrier / spot) / (vol * sqrt(expiry)) + λ * vol * sqrt(expiry)
+
+        knock_in = -spot * exp(-div * expiry) * (barrier / spot)^(2 * λ) * norm_cdf(-y1) +
+                   strike * exp(-rate * expiry) * (barrier / spot)^(2 * λ - 2) * norm_cdf(-y1 + vol * sqrt(expiry))
+
+        return max(0.0, vanilla_put - knock_in)
+
+    else  # :up_and_out
+        if spot >= barrier
+            return 0.0
+        end
+
+        λ = (rate - div + vol^2 / 2) / vol^2
+        y = log(barrier^2 / (spot * strike)) / (vol * sqrt(expiry)) + λ * vol * sqrt(expiry)
+
+        knock_in = -spot * exp(-div * expiry) * (barrier / spot)^(2 * λ) * norm_cdf(-y) +
+                   strike * exp(-rate * expiry) * (barrier / spot)^(2 * λ - 2) * norm_cdf(-y + vol * sqrt(expiry))
+
+        return max(0.0, vanilla_put - knock_in)
+    end
+end
+
+"""
+    price(option::KnockInCall, engine::BlackScholes, data::MarketData)
+
+Analytical pricing for knock-in call option using in-out parity.
+
+Knock-in + Knock-out = Vanilla
+"""
+function price(option::KnockInCall, engine::BlackScholes, data::MarketData)
+    (; strike, expiry, barrier, barrier_type) = option
+
+    vanilla = price(EuropeanCall(strike, expiry), engine, data)
+
+    # Map knock-in type to knock-out type
+    ko_type = barrier_type == :up_and_in ? :up_and_out : :down_and_out
+    knock_out = price(KnockOutCall(strike, expiry, barrier, ko_type), engine, data)
+
+    return vanilla - knock_out
+end
+
+"""
+    price(option::KnockInPut, engine::BlackScholes, data::MarketData)
+
+Analytical pricing for knock-in put option using in-out parity.
+"""
+function price(option::KnockInPut, engine::BlackScholes, data::MarketData)
+    (; strike, expiry, barrier, barrier_type) = option
+
+    vanilla = price(EuropeanPut(strike, expiry), engine, data)
+
+    ko_type = barrier_type == :up_and_in ? :up_and_out : :down_and_out
+    knock_out = price(KnockOutPut(strike, expiry, barrier, ko_type), engine, data)
+
+    return vanilla - knock_out
+end
+
+# ----------------------------------------------------------------------------
+# Lookback Options
+# ----------------------------------------------------------------------------
+
+"""
+    price(option::LookbackOption, engine::MonteCarlo, data::MarketData)
+
+Price a lookback option using Monte Carlo simulation.
+
+Generates paths and tracks the maximum/minimum price along each path.
+"""
+function price(option::LookbackOption, engine::MonteCarlo, data::MarketData)
+    (; expiry) = option
+    (; spot, rate, vol, div) = data
+    (; steps, reps) = engine
+
+    # Generate paths (column-major: steps+1 x reps)
+    paths = asset_paths_col(engine, spot, rate - div, vol, expiry)
+
+    # Compute payoffs for each path
+    payoffs = zeros(reps)
+    for j in 1:reps
+        path = paths[:, j]
+        payoffs[j] = payoff(option, path)
+    end
+
+    return exp(-rate * expiry) * mean(payoffs)
+end
+
+"""
+    price(option::FloatingStrikeLookbackCall, engine::BlackScholes, data::MarketData)
+
+Price floating-strike lookback call using Monte Carlo fallback.
+
+Payoff: S_T - S_min
+
+# TODO: Implement Goldman-Sosin-Gatto analytical formula
+"""
+function price(option::FloatingStrikeLookbackCall, ::BlackScholes, data::MarketData)
+    # Analytical lookback formulas are complex; use MC with high granularity
+    return price(option, MonteCarlo(252, 10000), data)
+end
+
+"""
+    price(option::FloatingStrikeLookbackPut, engine::BlackScholes, data::MarketData)
+
+Price floating-strike lookback put using Monte Carlo fallback.
+
+Payoff: S_max - S_T
+
+# TODO: Implement Goldman-Sosin-Gatto analytical formula
+"""
+function price(option::FloatingStrikeLookbackPut, ::BlackScholes, data::MarketData)
+    return price(option, MonteCarlo(252, 10000), data)
+end
+
+"""
+    price(option::FixedStrikeLookbackCall, engine::BlackScholes, data::MarketData)
+
+Price fixed-strike lookback call using Monte Carlo fallback.
+
+Payoff: max(0, S_max - K)
+
+# TODO: Implement Conze-Viswanathan analytical formula
+"""
+function price(option::FixedStrikeLookbackCall, ::BlackScholes, data::MarketData)
+    return price(option, MonteCarlo(252, 10000), data)
+end
+
+"""
+    price(option::FixedStrikeLookbackPut, engine::BlackScholes, data::MarketData)
+
+Price fixed-strike lookback put using Monte Carlo fallback.
+
+Payoff: max(0, K - S_min)
+
+# TODO: Implement Conze-Viswanathan analytical formula
+"""
+function price(option::FixedStrikeLookbackPut, ::BlackScholes, data::MarketData)
+    return price(option, MonteCarlo(252, 10000), data)
+end
