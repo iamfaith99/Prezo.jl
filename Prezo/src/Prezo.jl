@@ -16,6 +16,7 @@ include("lsm.jl")
 # Include Greeks module
 include("greeks/greeks.jl")
 using .Greeks
+import .Greeks: RhoDiv
 
 # Include Implied Volatility module
 include("implied_vol/implied_vol.jl")
@@ -40,6 +41,7 @@ include("hedging/hedging.jl")
 # Include Risk module (Phase 6: VaR, CVaR, stress testing, scenario analysis, Kelly)
 include("risk/risk.jl")
 using .Risk
+import .Risk: CRISIS_2008, COVID_2020, RATE_SHOCK_UP, RATE_SHOCK_DOWN
 
 # Include GPU acceleration (Monte Carlo on CUDA)
 include("gpu/gpu.jl")
@@ -118,6 +120,15 @@ export abc_inference, abc_model_choice, euclidean_distance
 export OHMCConfig, OHMCResult, ohmc_price
 export HedgingStrategy, DiscreteDeltaHedge, StopLossHedge, StaticHedge
 export HedgePerformance, backtest_hedge
+
+# CVaR-OHMC: Lagrangian CVaR inside OHMC (tail-risk-aware hedging)
+export CVaRObjective, CVaRPenalty, CVaRConstraint
+export LossDefinition, HedgingError, PortfolioPnL, Drawdown
+export CVaROHMCConfig, CVaROHMCResult, cvar_ohmc_price
+export CVaRComparisonResult, compare_ohmc_cvar
+export AdaptiveCVaRConfig, adaptive_cvar_ohmc
+export MultiPeriodCVaRConfig, multiperiod_cvar_ohmc
+export ConstrainedCVaROHMCResult, constrained_cvar_ohmc
 
 # Risk Management (Phase 6)
 export VaRMethod, HistoricalVaR, ParametricVaR, MonteCarloVaR
