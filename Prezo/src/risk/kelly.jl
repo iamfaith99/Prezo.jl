@@ -273,6 +273,8 @@ G(f) = p * log(1 + bf) + q * log(1 - f)
 Expected log growth rate.
 """
 function kelly_growth_rate(fraction::Real, win_prob::Real, win_loss_ratio::Real)
+    0.0 < win_prob < 1.0 || error("win_prob must be in (0, 1)")
+    win_loss_ratio > 0 || error("win_loss_ratio must be positive")
     0.0 <= fraction <= 1.0 || return -Inf
     p = win_prob
     q = 1.0 - p

@@ -255,6 +255,15 @@ Random.seed!(42)
         # Over-betting reduces growth
         g_over = kelly_growth_rate(0.8, 0.6, 1.0)
         @test g_over < g_opt
+        
+        # Validation: invalid win_prob should error
+        @test_throws ErrorException kelly_growth_rate(0.5, 0.0, 2.0)
+        @test_throws ErrorException kelly_growth_rate(0.5, 1.0, 2.0)
+        @test_throws ErrorException kelly_growth_rate(0.5, -0.1, 2.0)
+        
+        # Validation: invalid win_loss_ratio should error
+        @test_throws ErrorException kelly_growth_rate(0.5, 0.5, 0.0)
+        @test_throws ErrorException kelly_growth_rate(0.5, 0.5, -1.0)
     end
 
     @testset "Optimal Bet Size" begin
