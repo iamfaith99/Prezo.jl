@@ -150,56 +150,59 @@ function ohmc_price(
     return OHMCResult(option_price, hedge_ratios, hedged_var, ci)
 end
 
-# Internal: compute hedge ratio h = Phi * B from regression; B depends on scoring.
+# Internal: compute hedge ratio h = Phi * b from regression so that h ≈ dV/dS (delta).
+# We fit V = Phi*a + (Phi*b)*S_next (intercept + slope in S_next); then h = Phi*b is the
+# sensitivity (delta), not the level ratio V/S_next.
 function _ohmc_hedge_ratio(Phi::Matrix{Float64}, S_next::Vector{Float64}, V::Vector{Float64},
                           scoring::Symbol, risk_aversion::Float64)
     n_paths, n_basis = size(Phi)
     reg = 1e-2
+    # Design: V ≈ Phi*a + (Phi.*S_next)*b  =>  W*beta = V, W = [Phi  Phi.*S_next], beta = [a; b]
+    W_slope = Phi .* S_next   # n_paths × n_basis
+    W = [Phi W_slope]         # n_paths × (2*n_basis)
 
     if scoring == :quadratic
-        # Min E[(V - h*S)^2] => B = (W'W + reg*I)^{-1} W'V, W = Phi .* S_next
-        W = Phi .* S_next
+        # Min E[(V - a - b*S_next)^2] over a,b (in basis) => beta = (W'W + reg*I)^{-1} W'V
         A = W' * W + reg * I
-        b = W' * V
-        B = A \ b
-        return Phi * B
+        b_vec = W' * V
+        beta = A \ b_vec
+        b = beta[(n_basis + 1):end]
+        return Phi * b
     end
 
     if scoring == :log
-        # Min E[log(1 + (V - h*S)^2)] via IRLS: weight w_i = 1/(1 + r_i^2)
-        W = Phi .* S_next
-        B = (W' * W + reg * I) \ (W' * V)  # quadratic start
+        # Min E[log(1 + (V - a - b*S_next)^2)] via IRLS
+        beta = (W' * W + reg * I) \ (W' * V)
         for _ in 1:3
-            r = V .- (Phi * B) .* S_next
+            r = V .- W * beta
             w = 1.0 ./ (1.0 .+ r .^ 2)
             Ww = W .* sqrt.(w)
             Vw = V .* sqrt.(w)
             A = Ww' * Ww + reg * I
-            b = Ww' * Vw
-            B = A \ b
+            b_vec = Ww' * Vw
+            beta = A \ b_vec
         end
-        return Phi * B
+        b = beta[(n_basis + 1):end]
+        return Phi * b
     end
 
-    # scoring == :exponential_utility: min E[exp(-a*(V - h*S))], FOC: E[phi*S*exp(-a*(V - h*S))] = 0
-    # Newton on B: g(B) = Phi' * (S_next .* exp(-a*(V - Phi*B .* S_next))); J = a * Phi' * (w * Phi), w = S^2 * exp(...)
-    W = Phi .* S_next
-    B = (W' * W + reg * I) \ (W' * V)
-    a = risk_aversion
+    # scoring == :exponential_utility: min E[exp(-a*(V - W*beta))]; Newton on full beta
+    # Gradient g = a * W' * u, Hessian H = a^2 * W' * (u .* W), u = exp(-a*res)
+    beta = (W' * W + reg * I) \ (W' * V)
+    a_coef = risk_aversion
     for _ in 1:10
-        h = Phi * B
-        res = V .- h .* S_next
-        u = exp.(.-a .* res)
-        g = Phi' * (S_next .* u)
-        w = (S_next .^ 2) .* u .* a
-        J = Phi' * (w .* Phi) + reg * I
-        dB = J \ g
-        B = B - dB
-        if norm(dB) < 1e-8
+        res = V .- W * beta
+        u = exp.(.-a_coef .* res)
+        g = a_coef * (W' * u)
+        H = (a_coef^2) * (W' * (u .* W)) + reg * I
+        d_beta = H \ g
+        beta = beta - d_beta
+        if norm(d_beta) < 1e-8
             break
         end
     end
-    return Phi * B
+    b = beta[(n_basis + 1):end]
+    return Phi * b
 end
 
 # Internal: power basis matrix (n_paths × (order+1)), first column ones, then S/S_norm, (S/S_norm)^2, ...

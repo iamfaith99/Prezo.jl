@@ -28,6 +28,7 @@ using .Volatility
 # Include Filters module (Phase 3: state estimation)
 include("filters/filters.jl")
 using .Filters
+import .Filters: predict, update, filter_step, filter_data, smooth
 
 # Include Inference module (Phase 4: MLE, calibration, ABC)
 include("inference/inference.jl")
