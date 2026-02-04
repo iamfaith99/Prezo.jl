@@ -37,6 +37,10 @@ using .Inference
 # Include Hedging module (Phase 5: OHMC, delta hedging)
 include("hedging/hedging.jl")
 
+# Include Risk module (Phase 6: VaR, CVaR, stress testing, scenario analysis, Kelly)
+include("risk/risk.jl")
+using .Risk
+
 # Include GPU acceleration (Monte Carlo on CUDA)
 include("gpu/gpu.jl")
 
@@ -114,5 +118,20 @@ export abc_inference, abc_model_choice, euclidean_distance
 export OHMCConfig, OHMCResult, ohmc_price
 export HedgingStrategy, DiscreteDeltaHedge, StopLossHedge, StaticHedge
 export HedgePerformance, backtest_hedge
+
+# Risk Management (Phase 6)
+export VaRMethod, HistoricalVaR, ParametricVaR, MonteCarloVaR
+export value_at_risk, conditional_var, portfolio_var, PortfolioVaR
+export StressScenario, HistoricalScenario, HypotheticalScenario
+export PortfolioExposure, StressTestResult
+export stress_test, stress_test_suite, reverse_stress_test
+export CRISIS_2008, COVID_2020, RATE_SHOCK_UP, RATE_SHOCK_DOWN
+export ScenarioGrid, ScenarioAnalysisResult, SensitivityTable
+export scenario_grid, monte_carlo_scenarios
+export analyze_scenarios, sensitivity_table, scenario_ladder
+export kelly_fraction, fractional_kelly
+export kelly_continuous, kelly_from_sharpe
+export KellyPortfolio, kelly_portfolio, fractional_kelly_portfolio
+export kelly_growth_rate, kelly_drawdown_probability, optimal_bet_size
 
 end # module Prezo

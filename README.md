@@ -22,6 +22,7 @@ Prezo.jl/
 │   │   ├── filters/        # Kalman, EKF, EnKF, particle
 │   │   ├── inference/      # MLE, calibration, ABC
 │   │   ├── hedging/        # OHMC, delta hedging
+│   │   ├── risk/           # VaR, CVaR, stress testing, scenario, Kelly
 │   │   └── gpu/            # MonteCarloGPU, asset_paths_col_gpu
 │   ├── test/               # runtests.jl, test_*.jl, examples_*.jl, benchmark_lsm.jl
 │   ├── scripts/, docs/
@@ -36,14 +37,18 @@ Prezo.jl currently implements:
 - ✅ **European and American vanilla options** (calls and puts)
 - ✅ **Multiple pricing engines**: Black-Scholes, Binomial trees, Monte Carlo, Longstaff-Schwartz LSM
 - ✅ **Multiple basis functions** for LSM regression (Laguerre, Chebyshev, Power, Hermite)
-- ✅ **Greeks Module** (Phase 1 Complete): Analytical and numerical Greeks, portfolio aggregation
-- ✅ **Implied Volatility Module** (Phase 1 Complete): Newton-Raphson, Bisection, Hybrid solvers, volatility surface
+- ✅ **Greeks Module** (Phase 1): Analytical and numerical Greeks, portfolio aggregation
+- ✅ **Implied Volatility Module** (Phase 1): Newton-Raphson, Bisection, Hybrid solvers, volatility surface
 - ✅ **Volatility Module** (Phase 2): GARCH(1,1), EGARCH, GJR-GARCH with MLE fit and simulation
+- ✅ **Filters Module** (Phase 3): Kalman, Extended Kalman, Ensemble Kalman, Particle Filter
+- ✅ **Inference Module** (Phase 4): MLE, calibration, ABC variants
+- ✅ **Hedging Module** (Phase 5): OHMC, delta hedging strategies
+- ✅ **Risk Module** (Phase 6): VaR, CVaR, stress testing, scenario analysis, Kelly criterion
 - ✅ **Comprehensive test suite** with property-based and volatility tests
 - ✅ **BlueStyle-compliant codebase**
 - ✅ **Comprehensive documentation** with Documenter.jl
 
-**Current Phase**: Phase 2 (Volatility Modeling) — GARCH family (univariate) implemented; Heston and local vol planned.
+**Current Phase**: Phase 6 Complete (Risk Management) — VaR, CVaR, stress testing, scenario analysis, Kelly criterion implemented.
 
 ## TODO: Phased Roadmap (Aligned to DESIGN_DOCUMENT.md)
 
@@ -128,7 +133,27 @@ Prezo.jl currently implements:
   - ✅ Parallelization: `asset_paths_col_threaded(engine, spot, rate, vol, expiry)` via `Threads.@threads` (use `julia -t N`)
   - ✅ GPU acceleration: `MonteCarloGPU(steps, reps)`, `asset_paths_col_gpu(engine, spot, rate, vol, expiry)` (CUDA; requires GPU)
 
-### Phase 6+ — Future Work
+### Phase 6 — Risk Management ✅
+- [x] **Value at Risk (VaR)**
+  - Historical VaR, Parametric VaR, Monte Carlo VaR
+  - Multi-period VaR scaling (square-root-of-time)
+  - Portfolio VaR with component decomposition
+- [x] **Conditional VaR (CVaR / Expected Shortfall)**
+  - Historical, parametric, and Monte Carlo methods
+- [x] **Stress Testing**
+  - `PortfolioExposure`, `StressScenario`, `stress_test`, `stress_test_suite`
+  - Pre-defined scenarios: `CRISIS_2008`, `COVID_2020`, `RATE_SHOCK_UP`, `RATE_SHOCK_DOWN`
+  - Reverse stress testing (`reverse_stress_test`)
+- [x] **Scenario Analysis**
+  - `scenario_grid`, `monte_carlo_scenarios`
+  - `analyze_scenarios`, `sensitivity_table`, `scenario_ladder`
+- [x] **Kelly Criterion**
+  - Classic Kelly (`kelly_fraction`), fractional Kelly
+  - Continuous Kelly for Gaussian returns (`kelly_continuous`)
+  - Multi-asset Kelly portfolio optimization (`kelly_portfolio`, `fractional_kelly_portfolio`)
+  - Kelly growth rate, drawdown probability, optimal bet sizing
+
+### Phase 7+ — Future Work
 
 - [ ] **Volatility smile**
   - SABR model for volatility smile
@@ -136,11 +161,6 @@ Prezo.jl currently implements:
   - Real-time option chain fetching
   - Historical data analysis
   - Volatility surface fitting from market data
-- [ ] **Risk management tools**
-  - VaR (Value at Risk) calculation
-  - CVaR (Conditional VaR)
-  - Portfolio-level stress testing
-  - Scenario analysis framework
 - [ ] **Extended documentation**
   - Jupyter notebook tutorials
   - Comparison with QuantLib benchmarks

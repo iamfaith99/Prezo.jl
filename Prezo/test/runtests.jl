@@ -387,4 +387,9 @@ Random.seed!(42)
     @testset "GPU Module" begin
         include("test_gpu.jl")
     end
+
+    # Phase 6: Risk Management (VaR, CVaR, stress testing, scenario analysis, Kelly)
+    @testset "Risk Module" begin
+        include("test_risk.jl")
+    end
 end
