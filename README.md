@@ -11,13 +11,13 @@ Package source lives under `Prezo/` (Julia package root). Key layout:
 
 ```
 Prezo.jl/
-├── DESIGN_DOCUMENT.md, README.md, LSM_OPTIMIZATION_SUMMARY.md
+├── README.md
 ├── Prezo/
 │   ├── Project.toml
 │   ├── src/
 │   │   ├── Prezo.jl, data.jl, options.jl, engines.jl, paths.jl, basis.jl, lsm.jl
-│   │   ├── greeks/          # Greeks, portfolio, exotic
-│   │   ├── implied_vol/     # IV solvers, surface
+│   │   ├── greeks/         # Greeks, portfolio, exotic
+│   │   ├── implied_vol/    # IV solvers, surface
 │   │   ├── volatility/     # GARCH, Heston, local vol
 │   │   ├── filters/        # Kalman, EKF, EnKF, particle
 │   │   ├── inference/      # MLE, calibration, ABC
